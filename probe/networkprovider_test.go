@@ -79,7 +79,7 @@ func TestParseWiFiSnapshotRejectsInvalidOutput(t *testing.T) {
 func TestParseIPConfigWiFiIdentity(t *testing.T) {
 	output := `
 interface_type : WiFi
-SSID : Verizon_76Y7HS_EXT
+SSID : ExampleNet_EXT
 BSSID : aa:bb:cc:dd:ee:ff
 `
 
@@ -88,8 +88,8 @@ BSSID : aa:bb:cc:dd:ee:ff
 		t.Fatalf("parseIPConfigWiFiIdentity() error = %v", err)
 	}
 
-	if got.SSID == nil || *got.SSID != "Verizon_76Y7HS_EXT" {
-		t.Errorf("SSID = %v, want Verizon_76Y7HS_EXT", got.SSID)
+	if got.SSID == nil || *got.SSID != "ExampleNet_EXT" {
+		t.Errorf("SSID = %v, want ExampleNet_EXT", got.SSID)
 	}
 	if got.BSSID == nil || *got.BSSID != "aa:bb:cc:dd:ee:ff" {
 		t.Errorf("BSSID = %v, want aa:bb:cc:dd:ee:ff", got.BSSID)
@@ -105,7 +105,7 @@ func TestCurrentCombinesCoreWLANAndIPConfig(t *testing.T) {
 			output: []byte(`{"interface":"en0","channelNumber":64,"band":"5GHz","channelWidthMHz":80,"signalDBM":-36,"noiseDBM":-89}`),
 		},
 		"/usr/sbin/ipconfig getsummary en0": {
-			output: []byte("SSID : Verizon_76Y7HS_EXT\nBSSID : aa:bb:cc:dd:ee:ff\n"),
+			output: []byte("SSID : ExampleNet_EXT\nBSSID : aa:bb:cc:dd:ee:ff\n"),
 		},
 	}}
 	provider := &DarwinNetworkProvider{
@@ -122,7 +122,7 @@ func TestCurrentCombinesCoreWLANAndIPConfig(t *testing.T) {
 	if got.Interface != "en0" || got.ConnectionLabel != "tp-link-repeater" {
 		t.Errorf("Current() identity = %#v", got)
 	}
-	if got.SSID == nil || *got.SSID != "Verizon_76Y7HS_EXT" {
+	if got.SSID == nil || *got.SSID != "ExampleNet_EXT" {
 		t.Errorf("Current().SSID = %v", got.SSID)
 	}
 	if got.SignalDBM == nil || *got.SignalDBM != -36 {

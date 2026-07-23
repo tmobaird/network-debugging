@@ -32,7 +32,7 @@ def batch(
         "_rtts": list(rtts),
         "jitter_ms": abs(rtts[1] - rtts[0]) if len(rtts) >= 2 else None,
         "interface": "en0",
-        "ssid": "Verizon_76Y7HS",
+        "ssid": "ExampleNet",
         "bssid": "aa:bb:cc:dd:ee:ff",
         "channel_number": 64,
         "band": band,

@@ -37,7 +37,7 @@ type NetworkContext struct {
 	ConnectionLabel string `json:"connectionLabel"`
 
 	// SSID is the human-readable Wi-Fi network name, such as
-	// "Verizon_76Y7HS" or "Verizon_76Y7HS_EXT". Multiple radios can advertise
+	// "ExampleNet" or "ExampleNet_EXT". Multiple radios can advertise
 	// the same SSID, so this does not uniquely identify an access point.
 	SSID *string `json:"ssid"`
 
