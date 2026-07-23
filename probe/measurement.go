@@ -29,44 +29,44 @@ const (
 type NetworkContext struct {
 	// Interface is the operating-system name of the network interface that
 	// carried the measurement, for example "en0" on macOS or "wlan0" on Linux.
-	Interface string
+	Interface string `json:"interface"`
 
 	// ConnectionLabel is user-provided experiment context, such as
 	// "direct-verizon" or "tp-link-repeater". Unlike the remaining Wi-Fi
 	// fields, this is configured rather than observed by the operating system.
-	ConnectionLabel string
+	ConnectionLabel string `json:"connectionLabel"`
 
 	// SSID is the human-readable Wi-Fi network name, such as
 	// "Verizon_76Y7HS" or "Verizon_76Y7HS_EXT". Multiple radios can advertise
 	// the same SSID, so this does not uniquely identify an access point.
-	SSID *string
+	SSID *string `json:"ssid"`
 
 	// BSSID identifies the particular Wi-Fi radio the probe is associated
 	// with. It is normally represented as a MAC address. This is more precise
 	// than SSID when detecting roaming or comparing access points.
-	BSSID *string
+	BSSID *string `json:"bssid"`
 
 	// ChannelNumber is the primary Wi-Fi channel reported by the operating
 	// system. A channel number only has meaning together with Band.
-	ChannelNumber *int
+	ChannelNumber *int `json:"channelNumber"`
 
 	// Band identifies the Wi-Fi frequency band, for example "2.4GHz", "5GHz",
 	// or "6GHz".
-	Band *string
+	Band *string `json:"band"`
 
 	// ChannelWidthMHz is the amount of spectrum occupied by the connection,
 	// commonly 20, 40, 80, or 160 MHz.
-	ChannelWidthMHz *int
+	ChannelWidthMHz *int `json:"channelWidthMHz"`
 
 	// SignalDBM is the received Wi-Fi signal strength in dBm as observed by
 	// the probe. Values are normally negative; a value closer to zero means a
 	// stronger received signal. Signal strength alone does not measure link
 	// quality, interference, or the TP-Link's separate backhaul connection.
-	SignalDBM *int
+	SignalDBM *int `json:"signalDBM"`
 
 	// NoiseDBM is the background radio noise observed by the probe in dBm.
 	// SignalDBM - NoiseDBM gives the signal-to-noise ratio in decibels.
-	NoiseDBM *int
+	NoiseDBM *int `json:"noiseDBM"`
 }
 
 // Measurement contains the result of sending a batch of probes to one target.

@@ -3,8 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -14,76 +19,194 @@ const (
 	pingBatchTimeout      = 10 * time.Second
 )
 
-type probeSnapshot struct {
-	Gateway string          `json:"gateway"`
-	Network NetworkContext  `json:"network"`
-	Pings   []pingRunOutput `json:"pings"`
-}
-
 type pingRunOutput struct {
-	Target     string             `json:"target"`
-	TargetType TargetType         `json:"targetType"`
-	Samples    []pingSampleOutput `json:"samples"`
-	Error      string             `json:"error,omitempty"`
+	SchemaVersion int                `json:"schemaVersion"`
+	Timestamp     time.Time          `json:"timestamp"`
+	Target        string             `json:"target"`
+	TargetType    TargetType         `json:"targetType"`
+	Sent          int                `json:"sent"`
+	Received      int                `json:"received"`
+	Samples       []pingSampleOutput `json:"samples"`
+	Network       NetworkContext     `json:"network"`
+	Error         string             `json:"error,omitempty"`
 }
 
 type pingSampleOutput struct {
-	ICMPSequence int    `json:"icmpSequence"`
-	RTT          string `json:"rtt"`
+	ICMPSequence int     `json:"icmpSequence"`
+	RTTMillis    float64 `json:"rttMs"`
 }
 
 func main() {
-	network := newPlatformNetworkProvider()
-	gateway, err := network.DefaultGateway()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to discover gateway: %v\n", err)
+	interval := flag.Duration(
+		"interval",
+		0,
+		"time between measurement cycle starts; zero runs one cycle",
+	)
+	duration := flag.Duration(
+		"duration",
+		0,
+		"total experiment duration; zero runs until interrupted when interval is set",
+	)
+	flag.Parse()
+
+	if err := validateSchedule(*interval, *duration); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	if *duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *duration)
+		defer cancel()
+	}
+
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+
+	err := runExperiment(
+		ctx,
+		newPlatformNetworkProvider(),
+		encoder,
+		os.Stderr,
+		*interval,
+	)
+	if err != nil && !errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		fmt.Fprintf(os.Stderr, "probe failed: %v\n", err)
 		os.Exit(1)
 	}
-
-	context, err := network.Current()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to discover current network: %v\n", err)
-		os.Exit(1)
-	}
-
-	snapshot := probeSnapshot{
-		Gateway: gateway,
-		Network: context,
-		Pings: []pingRunOutput{
-			runPing(network, gateway, TargetGateway),
-			runPing(network, defaultInternetTarget, TargetInternet),
-		},
-	}
-
-	snapshotJSON, err := json.MarshalIndent(snapshot, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to encode probe snapshot: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Fprintln(os.Stdout, string(snapshotJSON))
 }
 
-func runPing(network NetworkProvider, target string, targetType TargetType) pingRunOutput {
-	result := pingRunOutput{
-		Target:     target,
-		TargetType: targetType,
-		Samples:    []pingSampleOutput{},
+func validateSchedule(interval, duration time.Duration) error {
+	if interval < 0 {
+		return errors.New("--interval must not be negative")
+	}
+	if duration < 0 {
+		return errors.New("--duration must not be negative")
+	}
+	if duration > 0 && interval == 0 {
+		return errors.New("--duration requires a positive --interval")
+	}
+	return nil
+}
+
+func runExperiment(
+	ctx context.Context,
+	network NetworkProvider,
+	encoder *json.Encoder,
+	stderr io.Writer,
+	interval time.Duration,
+) error {
+	nextCycle := time.Now()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if err := collectCycle(ctx, network, encoder); err != nil {
+			if interval == 0 {
+				return err
+			}
+			fmt.Fprintf(stderr, "measurement cycle failed: %v\n", err)
+		}
+
+		if interval == 0 {
+			return nil
+		}
+
+		nextCycle = nextCycle.Add(interval)
+		now := time.Now()
+		for !nextCycle.After(now) {
+			nextCycle = nextCycle.Add(interval)
+		}
+
+		timer := time.NewTimer(time.Until(nextCycle))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func collectCycle(
+	ctx context.Context,
+	network NetworkProvider,
+	encoder *json.Encoder,
+) error {
+	gateway, err := network.DefaultGateway()
+	if err != nil {
+		return fmt.Errorf("discover gateway: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), pingBatchTimeout)
+	networkContext, err := network.Current()
+	if err != nil {
+		return fmt.Errorf("discover current network: %w", err)
+	}
+
+	targets := []struct {
+		address    string
+		targetType TargetType
+	}{
+		{address: gateway, targetType: TargetGateway},
+		{address: defaultInternetTarget, targetType: TargetInternet},
+	}
+
+	for _, target := range targets {
+		result := runPing(ctx, network, networkContext, target.address, target.targetType)
+		if err := encoder.Encode(result); err != nil {
+			return fmt.Errorf("encode ping result: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func runPing(
+	parent context.Context,
+	network NetworkProvider,
+	networkContext NetworkContext,
+	target string,
+	targetType TargetType,
+) pingRunOutput {
+	result := pingRunOutput{
+		SchemaVersion: 1,
+		Timestamp:     time.Now().UTC(),
+		Target:        target,
+		TargetType:    targetType,
+		Samples:       []pingSampleOutput{},
+		Network:       networkContext,
+	}
+
+	ctx, cancel := context.WithTimeout(parent, pingBatchTimeout)
 	defer cancel()
 
-	samples, err := network.Ping(ctx, target, defaultPingCount)
+	pingResult, err := network.Ping(ctx, target, defaultPingCount)
 	if err != nil {
 		result.Error = err.Error()
 		return result
 	}
 
-	for _, sample := range samples {
+	result.Sent = pingResult.Sent
+	result.Received = pingResult.Received
+	for _, sample := range pingResult.Samples {
 		result.Samples = append(result.Samples, pingSampleOutput{
 			ICMPSequence: sample.IcmpSeq,
-			RTT:          sample.RTT.String(),
+			RTTMillis:    float64(sample.RTT) / float64(time.Millisecond),
 		})
 	}
 

@@ -21,7 +21,7 @@ const (
 type NetworkProvider interface {
 	DefaultGateway() (string, error)
 	Current() (NetworkContext, error)
-	Ping(ctx context.Context, target string, count int) ([]RTTSample, error)
+	Ping(ctx context.Context, target string, count int) (PingResult, error)
 }
 
 type commandRunner interface {
